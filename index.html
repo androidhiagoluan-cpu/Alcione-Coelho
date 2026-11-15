@@ -168,7 +168,7 @@ function refresh(){
 /* ---------- Insumos e Embalagens ---------- */
 function tplItem(k){
   const ins=k==='insumos';
-  return `<div class="card"><h2 id="titulo-${k}">Cadastrar ${ins?'Insumo / Item':'Embalagem'}</h2>
+  return `<div id="impacto-${k}"></div><div class="card"><h2 id="titulo-${k}">Cadastrar ${ins?'Insumo / Item':'Embalagem'}</h2>
   <input type="hidden" id="edit-id-${k}">
   <label>Nome</label><input type="text" id="nome-${k}" placeholder="${ins?'Ex: Leite Condensado':'Ex: Caixa kraft 4un'}">
   <div class="row">
@@ -177,7 +177,7 @@ function tplItem(k){
     <div><label>Quantidade na embalagem</label><input type="number" id="qtd-${k}" step="any" min="0" inputmode="decimal" placeholder="Ex: 395" oninput="previewItemBase('${k}')"></div>
   </div>
   <label>Preço pago (R$)</label><input type="number" id="preco-${k}" step="any" min="0" inputmode="decimal" placeholder="Ex: 7,50" oninput="previewItemBase('${k}')">
-  ${ins?`<div class="row"><div><label>1 xícara = ? (g ou ml)</label><input type="number" id="xic-${k}" step="any" min="0" inputmode="decimal" placeholder="opcional"></div><div><label>1 colher de sopa = ?</label><input type="number" id="cs-${k}" step="any" min="0" inputmode="decimal" placeholder="opcional"></div></div>`:''}
+  ${ins?`<label>Perda no preparo (%)</label><input type="number" id="perda-${k}" step="any" min="0" max="90" inputmode="decimal" placeholder="Ex: 10 (cascas, sobras)"><div class="row"><div><label>1 xícara = ? (g ou ml)</label><input type="number" id="xic-${k}" step="any" min="0" inputmode="decimal" placeholder="opcional"></div><div><label>1 colher de sopa = ?</label><input type="number" id="cs-${k}" step="any" min="0" inputmode="decimal" placeholder="opcional"></div></div>`:''}
   <div class="unit-preview" id="prev-${k}">Informe quantidade e preço</div>
   <button onclick="salvarItem('${k}')">💾 Salvar</button>
   <button class="cancel" id="cancel-${k}" style="display:none" onclick="cancelarItem('${k}')">Cancelar edição</button></div>
@@ -189,24 +189,24 @@ function previewItemBase(k){
 }
 function salvarItem(k){
   let nome=$('nome-'+k).value.trim(),qtd=num($('qtd-'+k).value),preco=num($('preco-'+k).value),un=$('un-'+k).value,id=$('edit-id-'+k).value;
-  const cv=FAT[un];if(cv){un=cv[0];qtd*=cv[1]}const mv=f=>$(f+'-'+k)?num($(f+'-'+k).value):0;
+  const cv=FAT[un];if(cv){un=cv[0];qtd*=cv[1]}const mv=f=>$(f+'-'+k)?num($(f+'-'+k).value):0;const ant=id?snapRec():null;
   if(!nome)return alert('Informe o nome.');
   if(qtd<=0)return alert('A quantidade deve ser maior que zero.');
   if($('preco-'+k).value==='')return alert('Informe o preço pago.');
-  const o={id:id||uid(),nome,un,qtd,preco,xic:mv('xic'),cs:mv('cs')},a=db[k],i=a.findIndex(x=>x.id===id);
+  const o={id:id||uid(),nome,un,qtd,preco,xic:mv('xic'),cs:mv('cs'),perda:mv('perda')},a=db[k],i=a.findIndex(x=>x.id===id);
   if(i>=0)a[i]=o;else a.push(o);
-  save();cancelarItem(k);refresh();
+  save();cancelarItem(k);refresh();if(ant)mostrarImpacto(ant,k);
 }
 function cancelarItem(k){
   ['nome','qtd','preco','edit-id'].forEach(f=>$(f+'-'+k).value='');
-  $('un-'+k).value=k==='embalagens'?'un':'g';['xic','cs'].forEach(f=>{if($(f+'-'+k))$(f+'-'+k).value=''});
+  $('un-'+k).value=k==='embalagens'?'un':'g';['xic','cs','perda'].forEach(f=>{if($(f+'-'+k))$(f+'-'+k).value=''});
   $('titulo-'+k).textContent='Cadastrar '+(k==='insumos'?'Insumo / Item':'Embalagem');
   $('cancel-'+k).style.display='none';previewItemBase(k);
 }
 function editarItem(k,id){
   const x=db[k].find(i=>i.id===id);if(!x)return;
   $('edit-id-'+k).value=x.id;$('nome-'+k).value=x.nome;$('un-'+k).value=x.un;$('qtd-'+k).value=x.qtd;$('preco-'+k).value=x.preco;
-  if($('xic-'+k)){$('xic-'+k).value=x.xic||'';$('cs-'+k).value=x.cs||''}$('titulo-'+k).textContent='Editar item';$('cancel-'+k).style.display='block';previewItemBase(k);window.scrollTo(0,0);
+  if($('xic-'+k)){$('xic-'+k).value=x.xic||'';$('cs-'+k).value=x.cs||'';$('perda-'+k).value=x.perda||''}$('titulo-'+k).textContent='Editar item';$('cancel-'+k).style.display='block';previewItemBase(k);window.scrollTo(0,0);
 }
 function emUso(t,id){return [...db.subreceitas,...db.receitas].some(r=>r.itens.some(i=>i.t===t&&i.id===id))}
 function excluirItem(k,id){
@@ -225,9 +225,9 @@ function listarItem(k){
 /* ---------- Custos ---------- */
 function custoItem(it){
   const x=find(it.t,it.id);if(!x)return 0;
-  return it.t==='s'?custoSub(x)/(x.rend||1)*it.q:x.preco/x.qtd*it.q;
+  return it.t==='s'?custoSub(x)/(x.rend||1)*it.q:x.preco/x.qtd*it.q*(it.t==='i'?pf(x.perda):1);
 }
-function custoSub(s){return s.itens.reduce((a,i)=>a+custoItem(i),0)}
+function custoSub(s){return s.itens.reduce((a,i)=>a+custoItem(i),0)*pf(s.perda)}
 function calcPrecos(c,m,o,ti,t9){
   const f=tx=>{const d=1-(m+o+tx)/100;return d>0?c/d:null};
   return{dir:f(0),ifood:f(ti),f99:f(t9)};
@@ -240,6 +240,7 @@ const pricingHTML=`<div class="pricing-section"><label>Margem de lucro sobre o p
   <div><label>Taxa 99Food (%)</label><input type="number" id="t9-receitas" value="25" step="any" min="0" inputmode="decimal" oninput="calcComp('receitas')"></div></div>
   <label>Outros custos sobre a venda (%): imposto, cartão</label>
   <input type="number" id="o-receitas" value="0" step="any" min="0" inputmode="decimal" oninput="calcComp('receitas')">
+  <label>Arredondar preço de venda</label><select id="arr-receitas" onchange="calcComp('receitas')"><option value="">Sem arredondar</option><option value="0.1">Para cima, a cada R$ 0,10</option><option value="0.5">Para cima, a cada R$ 0,50</option><option value="1">Para o próximo real</option><option value="90">Terminar em ,90</option></select>
   <p class="hint">As taxas iniciais são só exemplos. Ajuste para o seu plano em cada aplicativo.</p>
   <div id="precos"></div></div>`;
 function tplComp(k){
@@ -249,6 +250,7 @@ function tplComp(k){
   <label>Nome</label><input type="text" id="nome-${k}" placeholder="${R?'Ex: Brigadeiro gourmet (caixa 4un)':'Ex: Massa de chocolate'}">
   <div class="row"><div><label>Rendimento</label><input type="number" id="rend-${k}" step="any" min="0" inputmode="decimal" placeholder="Ex: ${R?'12':'1000'}" oninput="calcComp('${k}')"></div>
   <div><label>Unidade</label><select id="un-${k}" onchange="calcComp('${k}')">${R?'<option value="un">unidades</option>':'<option value="g">g</option><option value="ml">ml</option><option value="un">un</option>'}</select></div></div>
+  <label>Perda geral da ${R?'receita':'sub-receita'} (%)</label><input type="number" id="perda-${k}" step="any" min="0" max="90" inputmode="decimal" placeholder="Ex: 5 (massa que gruda, sobras)" oninput="calcComp('${k}')">
   <div class="prod-box"><label>Adicionar item</label>
   ${R?`<select id="tipo-${k}" onchange="fillSel('${k}')"><option value="i">Insumo</option><option value="s">Sub-receita</option><option value="e">Embalagem</option></select>`:''}
   <select id="sel-${k}" onchange="fillQU('${k}')"></select>
@@ -287,14 +289,14 @@ function precosHTML(p,rend){
   return `<div class="summary-box" style="margin-top:4px"><strong>Preço de venda sugerido</strong><br><br>${row('green','Venda direta',p.dir)}${row('ifood','iFood',p.ifood)}${row('food99','99Food',p.f99)}</div>`;
 }
 function calcComp(k){
-  const tot=draft[k].reduce((a,i)=>a+custoItem(i),0),rend=num($('rend-'+k).value),un=$('un-'+k).value;
+  const tot=draft[k].reduce((a,i)=>a+custoItem(i),0)*pf(num($('perda-'+k).value)),rend=num($('rend-'+k).value),un=$('un-'+k).value;
   let h=`<div class="summary-line"><span>Custo total</span><b>${brl(tot)}</b></div>`;
   if(rend>0)h+=`<div class="summary-line summary-total"><span>Custo por ${un}</span><span>${brl4(tot/rend)}</span></div>`;
   else h+='<div class="summary-line"><small>Informe o rendimento para ver o custo unitário.</small></div>';
   $('resumo-'+k).innerHTML=h;
   if(k==='receitas'){
     const c=rend>0?tot/rend:tot;
-    $('precos').innerHTML=precosHTML(calcPrecos(c,num($('m-receitas').value),num($('o-receitas').value),num($('ti-receitas').value),num($('t9-receitas').value)),rend);
+    $('precos').innerHTML=precosHTML2(c,rend,num($('m-receitas').value),num($('o-receitas').value),num($('ti-receitas').value),num($('t9-receitas').value),$('arr-receitas').value);
   }
 }
 function salvarComp(k){
@@ -302,22 +304,22 @@ function salvarComp(k){
   if(!nome)return alert('Informe o nome.');
   if(rend<=0)return alert('O rendimento deve ser maior que zero.');
   if(!draft[k].length)return alert('Adicione pelo menos um item.');
-  const o={id:id||uid(),nome,rend,un:$('un-'+k).value,itens:draft[k].map(i=>({...i}))};
-  if(k==='receitas'){o.m=num($('m-receitas').value);o.ti=num($('ti-receitas').value);o.t9=num($('t9-receitas').value);o.o=num($('o-receitas').value)}
+  const o={id:id||uid(),nome,rend,un:$('un-'+k).value,itens:draft[k].map(i=>({...i})),perda:num($('perda-'+k).value)};
+  if(k==='receitas'){o.m=num($('m-receitas').value);o.ti=num($('ti-receitas').value);o.t9=num($('t9-receitas').value);o.o=num($('o-receitas').value);o.arr=$('arr-receitas').value}
   const a=db[k],i=a.findIndex(x=>x.id===id);
   if(i>=0)a[i]=o;else a.push(o);
   save();cancelarComp(k);refresh();
 }
 function cancelarComp(k){
-  $('nome-'+k).value='';$('rend-'+k).value='';$('edit-id-'+k).value='';draft[k]=[];
-  if(k==='receitas'){$('m-receitas').value=30;$('ti-receitas').value=27;$('t9-receitas').value=25;$('o-receitas').value=0}
+  $('nome-'+k).value='';$('rend-'+k).value='';$('perda-'+k).value='';$('edit-id-'+k).value='';draft[k]=[];
+  if(k==='receitas'){$('m-receitas').value=30;$('ti-receitas').value=27;$('t9-receitas').value=25;$('o-receitas').value=0;$('arr-receitas').value=''}
   $('titulo-'+k).textContent=k==='receitas'?'Nova Receita Completa':'Nova Sub-receita';
   $('cancel-'+k).style.display='none';renderItens(k);calcComp(k);
 }
 function editarComp(k,id){
   const x=db[k].find(r=>r.id===id);if(!x)return;
-  $('edit-id-'+k).value=x.id;$('nome-'+k).value=x.nome;$('rend-'+k).value=x.rend;$('un-'+k).value=x.un;draft[k]=x.itens.map(i=>({...i}));
-  if(k==='receitas'){$('m-receitas').value=x.m;$('ti-receitas').value=x.ti;$('t9-receitas').value=x.t9;$('o-receitas').value=x.o}
+  $('edit-id-'+k).value=x.id;$('nome-'+k).value=x.nome;$('rend-'+k).value=x.rend;$('perda-'+k).value=x.perda||'';$('un-'+k).value=x.un;draft[k]=x.itens.map(i=>({...i}));
+  if(k==='receitas'){$('m-receitas').value=x.m;$('ti-receitas').value=x.ti;$('t9-receitas').value=x.t9;$('o-receitas').value=x.o;$('arr-receitas').value=x.arr||''}
   $('titulo-'+k).textContent='Editar';$('cancel-'+k).style.display='block';renderItens(k);calcComp(k);window.scrollTo(0,0);
 }
 function duplicarComp(k,id){
@@ -334,7 +336,7 @@ function listarComp(k){
   const a=db[k].filter(x=>x.nome.toLowerCase().includes(b)).sort(byNome);
   $('lista-'+k).innerHTML=a.length?a.map(x=>{
     const tot=custoSub(x),c=tot/x.rend;let bd=`<span class="badge">Rende ${fmt(x.rend)} ${x.un}</span><span class="badge green">${brl4(c)} / ${x.un}</span>`;
-    if(k==='receitas'){const p=calcPrecos(c,x.m,x.o,x.ti,x.t9);
+    if(k==='receitas'){const p0=calcPrecos(c,x.m,x.o,x.ti,x.t9),p={dir:arred(p0.dir,x.arr),ifood:arred(p0.ifood,x.arr),f99:arred(p0.f99,x.arr)};
       bd+=`<br><span class="badge green">Direta ${p.dir===null?'—':brl(p.dir)}</span><span class="badge ifood">iFood ${p.ifood===null?'—':brl(p.ifood)}</span><span class="badge food99">99Food ${p.f99===null?'—':brl(p.f99)}</span>`}
     return `<li><div class="info"><strong>${esc(x.nome)}</strong><br>${bd}</div>
     <div class="actions"><button class="small edit" onclick="editarComp('${k}','${x.id}')">✏️</button><button class="small" onclick="fichaTecnica('${k}','${x.id}')">📄</button><button class="small dup" onclick="duplicarComp('${k}','${x.id}')">⧉</button><button class="small danger" onclick="excluirComp('${k}','${x.id}')">🗑️</button></div></li>`}).join(''):'<li class="empty">Nada cadastrado ainda.</li>';
@@ -354,8 +356,8 @@ function prodAtual(){
 function prodLines(itens,f,d){
   let out=[];
   itens.forEach(it=>{const x=find(it.t,it.id);if(!x)return;const q=it.q*f;
-    out.push({d,nome:x.nome,q,un:x.un});
-    if(it.t==='s')out=out.concat(prodLines(x.itens,q/(x.rend||1),d+1))});
+    out.push({d,nome:x.nome,q:q*(it.t==='i'?pf(x.perda):1),un:x.un});
+    if(it.t==='s')out=out.concat(prodLines(x.itens,q/(x.rend||1)*pf(x.perda),d+1))});
   return out;
 }
 function calcProd(){
@@ -364,7 +366,7 @@ function calcProd(){
   $('prod-lbl').textContent=`Quantidade desejada (${r.un}). A receita rende ${fmt(r.rend)} ${r.un}`;
   const q=num($('prod-qtd').value);
   if(q<=0){out.innerHTML='<p class="hint">Informe a quantidade para ver os itens a separar.</p>';return}
-  const f=q/r.rend,ls=prodLines(r.itens,f,0);
+  const f=q/r.rend,ls=prodLines(r.itens,f*pf(r.perda),0);
   out.innerHTML=`<div class="summary-box"><div class="summary-line"><span>Fator de escala</span><b>${fmt(f)}×</b></div>
   <ul class="item-list">${ls.map(l=>`<li style="padding-left:${l.d*16}px"><span>${l.d?'↳ ':''}${esc(l.nome)}</span><b>${fmt(l.q)} ${l.un}</b></li>`).join('')}</ul>
   <div class="summary-line summary-total"><span>Custo desta produção</span><span>${brl(custoSub(r)*f)}</span></div></div>`;
@@ -372,7 +374,7 @@ function calcProd(){
 function enviarProd(){
   const r=prodAtual(),q=num($('prod-qtd').value);
   if(!r||q<=0)return alert('Escolha o produto e informe a quantidade.');
-  const ls=prodLines(r.itens,q/r.rend,0);
+  const ls=prodLines(r.itens,q/r.rend*pf(r.perda),0);
   const txt=`*${r.nome}* — ${fmt(q)} ${r.un}\n\n`+ls.map(l=>`${'   '.repeat(l.d)}• ${l.nome}: ${fmt(l.q)} ${l.un}`).join('\n');
   window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');
 }
@@ -422,7 +424,7 @@ function fillQU(k){const t=k==='receitas'?$('tipo-'+k).value:'i';$('qu-'+k).inne
 const fmtQ=(q,un)=>(un==='g'||un==='ml')&&q>=1000?fmt(q/1000)+(un==='g'?' kg':' l'):fmt(q)+' '+un;
 const fdata=d=>d?d.split('-').reverse().join('/'):'sem data';
 const wpp=t=>window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank');
-function precoUn(r){const c=custoSub(r)/r.rend,p=calcPrecos(c,r.m,r.o,0,0).dir;return p===null?c:p}
+function precoUn(r){const c=custoSub(r)/r.rend,p=calcPrecos(c,r.m,r.o,0,0).dir;return p===null?c:arred(p,r.arr)}
 
 /* ---------- Encomendas ---------- */
 let ped=[];
@@ -453,8 +455,8 @@ function renderPed(){$('ped-itens').innerHTML=ped.length?ped.map((p,i)=>{const r
 function totPed(p){let v=0,c=0;p.itens.forEach(i=>{const r=db.receitas.find(x=>x.id===i.r);if(r){v+=precoUn(r)*i.q;c+=custoSub(r)/r.rend*i.q}});
   const e=num(p.ent),d=num(p.desc);return{v,c,e,d,t:v+e-d}}
 function folhas(itens,f,acc){itens.forEach(it=>{const x=find(it.t,it.id);if(!x)return;const q=it.q*f;
-  if(it.t==='s')folhas(x.itens,q/(x.rend||1),acc);else{const a=acc[it.t+it.id]||(acc[it.t+it.id]={x,q:0});a.q+=q}});return acc}
-function listaCompras(items){const acc={};items.forEach(p=>{const r=db.receitas.find(x=>x.id===p.r);if(r)folhas(r.itens,p.q/r.rend,acc)});
+  if(it.t==='s')folhas(x.itens,q/(x.rend||1)*pf(x.perda),acc);else{const a=acc[it.t+it.id]||(acc[it.t+it.id]={x,q:0});a.q+=q*(it.t==='i'?pf(x.perda):1)}});return acc}
+function listaCompras(items){const acc={};items.forEach(p=>{const r=db.receitas.find(x=>x.id===p.r);if(r)folhas(r.itens,p.q/r.rend*pf(r.perda),acc)});
   return Object.values(acc).sort((a,b)=>byNome(a.x,b.x))}
 function calcPed(){
   const t=totPed({itens:ped,ent:$('ent').value,desc:$('desc').value});
@@ -492,14 +494,32 @@ function fichaTecnica(k,id){
   const r=db[k].find(x=>x.id===id);if(!r)return;const tot=custoSub(r),c=tot/r.rend;
   let h=`<h1 style="font-family:Georgia,serif">${esc(r.nome)}</h1><p>Ficha técnica · rende ${fmt(r.rend)} ${r.un}</p><table><tr><th>Ingrediente</th><th>Quantidade</th><th>Custo</th></tr>`
    +r.itens.map(i=>{const x=find(i.t,i.id);return x?`<tr><td>${esc(x.nome)}</td><td>${fmtQ(i.q,x.un)}</td><td>${brl(custoItem(i))}</td></tr>`:''}).join('')
-   +`<tr><th>Custo total</th><th></th><th>${brl(tot)}</th></tr><tr><td>Custo por ${r.un}</td><td></td><td>${brl4(c)}</td></tr></table>`;
-  if(k==='receitas'){const p=calcPrecos(c,r.m,r.o,r.ti,r.t9),f=v=>v===null?'—':brl(v);
+   +(r.perda?`<tr><td>Perda geral (${fmt(r.perda)}%)</td><td></td><td>${brl(tot-r.itens.reduce((a,i)=>a+custoItem(i),0))}</td></tr>`:'')+`<tr><th>Custo total</th><th></th><th>${brl(tot)}</th></tr><tr><td>Custo por ${r.un}</td><td></td><td>${brl4(c)}</td></tr></table>`;
+  if(k==='receitas'){const p0=calcPrecos(c,r.m,r.o,r.ti,r.t9),p={dir:arred(p0.dir,r.arr),ifood:arred(p0.ifood,r.arr),f99:arred(p0.f99,r.arr)},f=v=>v===null?'—':brl(v);
     h+=`<h3>Preço sugerido (por un)</h3><p>Venda direta: <b>${f(p.dir)}</b> · iFood: <b>${f(p.ifood)}</b> · 99Food: <b>${f(p.f99)}</b><br>Margem ${fmt(r.m)}% · Taxas: iFood ${fmt(r.ti)}%, 99Food ${fmt(r.t9)}%</p>`}
   imprimir(h);
 }
 function tabelaPrecos(){
   const r=[...db.receitas].sort(byNome);if(!r.length)return alert('Cadastre receitas primeiro.');
   imprimir(`<h1 style="font-family:Georgia,serif">Tabela de preços</h1><p>Alcione Coelho · Doces artesanais · ${new Date().toLocaleDateString('pt-BR')}</p><table><tr><th>Produto</th><th>Preço (un)</th></tr>`+r.map(x=>`<tr><td>${esc(x.nome)}</td><td>${brl(precoUn(x))}</td></tr>`).join('')+'</table>');
+}
+
+/* ---------- Perdas, arredondamento e impacto de reajuste ---------- */
+function pf(p){return 1/(1-Math.min(p||0,90)/100)}
+function arred(p,a){if(p===null||!a)return p;if(a==='90')return Math.ceil(p+.1-1e-9)-.1;const s=+a;return Math.ceil(p/s-1e-9)*s}
+function precosHTML2(c,rend,m,o,ti,t9,a){
+  const p=calcPrecos(c,m,o,ti,t9),L=[['green','Venda direta',p.dir,0],['ifood','iFood',p.ifood,ti],['food99','99Food',p.f99,t9]];
+  return `<div class="summary-box" style="margin-top:4px"><strong>Preço de venda sugerido</strong><br><br>`+L.map(([cls,n,v,tx])=>{
+    if(v===null)return `<div class="summary-line"><span class="badge ${cls}">${n}</span><small>inviável: taxas + margem ≥ 100%</small></div>`;
+    const q=arred(v,a),luc=q*(1-(o+tx)/100)-c;
+    return `<div class="summary-line"><span class="badge ${cls}">${n}</span><span style="text-align:right"><b>${brl(q)}</b> /un${a?` <small>(calculado ${brl(v)})</small>`:''}<br><small>lucro ${brl(luc)} /un · margem ${fmt(luc/q*100)}%${rend>1?` · lote ${brl(q*rend)}`:''}</small></span></div>`}).join('')+'</div>';
+}
+function snapRec(){return db.receitas.map(r=>({id:r.id,c:custoSub(r)/r.rend,p:precoUn(r)}))}
+function mostrarImpacto(ant,k){
+  const L=ant.map(a=>{const r=db.receitas.find(x=>x.id===a.id);if(!r)return null;const c=custoSub(r)/r.rend;if(Math.abs(c-a.c)<1e-6)return null;
+    const mg=(P,cc)=>(P*(1-num(r.o)/100)-cc)/P*100;return{n:r.nome,c0:a.c,c1:c,p1:precoUn(r),m0:mg(a.p,a.c),m1:mg(a.p,c)}}).filter(Boolean);
+  $('impacto-'+k).innerHTML=L.length?`<div class="card" style="border-color:#e6a23c"><h2>⚠️ Impacto do novo preço</h2>`+L.map(x=>`<p style="margin:0 0 10px"><strong>${esc(x.n)}</strong><br>Custo por un: ${brl4(x.c0)} → <b>${brl4(x.c1)}</b> ${x.c1>x.c0?'▲':'▼'}<br>Margem no preço de venda atual (venda direta): ${fmt(x.m0)}% → <b>${fmt(x.m1)}%</b><br>Preço sugerido agora: <b>${brl(x.p1)}</b></p>`).join('')+`<button class="cancel" onclick="this.parentNode.parentNode.innerHTML=''">Fechar</button></div>`:'';
+  if(L.length)window.scrollTo(0,0);
 }
 
 /* ---------- Início ---------- */
